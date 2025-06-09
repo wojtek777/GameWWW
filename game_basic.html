@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Circle Collector Game</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #111;
+    }
+
+    #gameCanvas {
+      display: block;
+      background: #222;
+    }
+  </style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+
+<script>
+  const canvas = document.getElementById("gameCanvas");
+  const ctx = canvas.getContext("2d");
+
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const gravitationalConstant = 10.05;
+
+  const player = {
+    x: canvas.width / 2,
+    y: canvas.height / 2,
+    radius: 20,
+    speed: 4,
+    dx: 0,
+    dy: 0,
+    mass: 10,
+    eatenDots: 0
+  };
+
+  const keys = {};
+  const dots = [];
+
+  function spawn5NewDots() {
+    for (let i = 0; i < 5; i++) {
+      dots.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        radius: 5
+      });
+    }
+  }
+
+  function handleInput() {
+    player.dx = 0;
+    player.dy = 0;
+
+    if (keys["ArrowUp"]) player.dy = -player.speed;
+    if (keys["ArrowDown"]) player.dy = player.speed;
+    if (keys["ArrowLeft"]) player.dx = -player.speed;
+    if (keys["ArrowRight"]) player.dx = player.speed;
+  }
+
+  function update() {
+    handleInput();
+
+    player.x += player.dx;
+    player.y += player.dy;
+
+    // Clamp inside canvas
+    const r = player.radius;
+    player.x = Math.max(r, Math.min(canvas.width - r, player.x));
+    player.y = Math.max(r, Math.min(canvas.height - r, player.y));
+
+    // Apply gravity to dots
+    for (let i = dots.length - 1; i >= 0; i--) {
+      const dot = dots[i];
+      const dx = player.x - dot.x;
+      const dy = player.y - dot.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      let forceFactor = 0;
+
+      if (dist < player.radius * 2) {
+        forceFactor = 1.0;
+      } else if (dist < player.radius * 4) {
+        forceFactor = 0.5;
+      } else if (dist < player.radius * 8) {
+        forceFactor = 0.2;
+      }
+
+      if (forceFactor > 0) {
+        const force = gravitationalConstant * (player.mass / (dist * dist)) * forceFactor;
+
+        dot.x += dx * force;
+        dot.y += dy * force;
+      }
+
+      // Absorb dot if close enough
+      if (dist < player.radius + dot.radius) {
+        dots.splice(i, 1);
+        player.radius += 0.5;
+        player.eatenDots += 1;
+
+        // Every 10 dots = +1 mass
+        if (player.eatenDots % 10 === 0) {
+          player.mass += 1;
+        }
+      }
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Player
+    ctx.fillStyle = "#00ff88";
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Dots
+    ctx.fillStyle = "#ffcc00";
+    dots.forEach(dot => {
+      ctx.beginPath();
+      ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Optional: show stats
+    ctx.fillStyle = "white";
+    ctx.font = "16px sans-serif";
+    ctx.fillText(`Mass: ${player.mass}`, 20, 30);
+    ctx.fillText(`Dots eaten: ${player.eatenDots}`, 20, 50);
+  }
+
+  function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Controls
+  window.addEventListener("keydown", e => keys[e.key] = true);
+  window.addEventListener("keyup", e => keys[e.key] = false);
+
+  // Start
+  setInterval(spawn5NewDots, 5000);
+  spawn5NewDots();
+  gameLoop();
+</script>
+</body>
+</html>
+

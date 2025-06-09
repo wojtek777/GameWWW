@@ -1,8 +1,390 @@
-<html>
-        <head>
-            <title>Some HTML in here</title>
-        </head>
-        <body>
-            <h1>Look ma! HTML!</h1>
-        </body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gravity game to overcome black holes</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #111;
+      font-family: sans-serif;
+    }
+    #gameCanvas {
+      display: block;
+      background: #000;
+    }
+    #restartBtn {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 10px 20px;
+      font-size: 18px;
+      background: #008800;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      display: none;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<button id="restartBtn">Restart Game</button>
+
+<script>
+  const canvas = document.getElementById("gameCanvas");
+  const ctx = canvas.getContext("2d");
+
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const gravitationalConstant = 32.00;
+
+  const player = {
+    //x: canvas.width / 2,
+    //y: canvas.height / 2,
+    x: 10,
+    y: 10,
+    radius: 3,
+    speed: 5,
+    dx: 0,
+    dy: 0,
+    mass: 30,
+    eatenDots: 0
+  };
+
+  // Black holes setup with non-overlapping gravitational fields
+  const blackHoles = [];
+  const blackHoleCount = 1; 
+  const blackHoleRadius = 100;
+  const maxGravityRadius = blackHoleRadius * 8; // max radius for gravity effect
+
+  function getRandomPosition() {
+    return {
+      x: Math.random() * (canvas.width - 2 * maxGravityRadius) + maxGravityRadius,
+      y: Math.random() * (canvas.height - 2 * maxGravityRadius) + maxGravityRadius,
+    };
+  }
+
+  function distance(a, b) {
+    return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+  }
+
+  // Initialize black holes
+  for (let i = 0; i < blackHoleCount; i++) {
+    let pos;
+    let tries = 0;
+    do {
+      pos = getRandomPosition();
+      tries++;
+    } while (
+      blackHoles.some(bh => distance(bh, pos) < maxGravityRadius) && tries < 100 && (pos.x < 10 || pos.y < 10)
+    );
+
+    blackHoles.push({
+      x: pos.x,
+      y: pos.y,
+      radius: blackHoleRadius,
+      mass: 500,
+      eatenDots: 0,
+    });
+  }
+
+  const keys = {};
+  const dots = [];
+  let gameOver = false;
+  let dotSpawner;
+
+  const restartBtn = document.getElementById("restartBtn");
+
+  function spawnNewDots() {
+    for (let i = 0; i < 28; i++) {
+      dots.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        radius: 3.5,
+      });
+    }
+  }
+
+  function handleInput() {
+    player.dx = 0;
+    player.dy = 0;
+
+    if (keys["ArrowUp"]) player.dy = -player.speed;
+    if (keys["ArrowDown"]) player.dy = player.speed;
+    if (keys["ArrowLeft"]) player.dx = -player.speed;
+    if (keys["ArrowRight"]) player.dx = player.speed;
+  }
+
+  // Apply gravity with optional slow motion speed multiplier
+  function applyGravity(body, target, targetIsPlayer = false, speedMultiplier = 1) {
+    const dx = body.x - target.x;
+    const dy = body.y - target.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    let forceFactor = 0;
+
+    if (dist < body.radius * 2) {
+      forceFactor = 4.0;
+    } else if (dist < body.radius * 5) {
+      forceFactor = 1.0;
+    } else if (dist < body.radius * 10) {
+      forceFactor = 0.8;
+    } else if (dist < body.radius * 20) {
+      forceFactor = 0.6;
+    } else if (dist < body.radius * 50) {
+      forceFactor = 0.2;
+    }
+
+    if (forceFactor > 0 && dist > 0) {
+      const force = gravitationalConstant * (body.mass / (dist * dist)) * forceFactor;
+      const normX = dx / dist;
+      const normY = dy / dist;
+
+      target.x += normX * force * speedMultiplier;
+      target.y += normY * force * speedMultiplier;
+
+      if (targetIsPlayer) {
+        target.x = Math.max(target.radius, Math.min(canvas.width - target.radius, target.x));
+        target.y = Math.max(target.radius, Math.min(canvas.height - target.radius, target.y));
+      }
+    }
+  }
+
+  let slowMotion = false;
+
+  function update() {
+    if (gameOver) return;
+
+    handleInput();
+
+    // Detect closest black hole to player
+    let closestBH = null;
+    let closestDist = Infinity;
+    for (const bh of blackHoles) {
+      let distToPlayer = Math.sqrt((bh.x - player.x) ** 2 + (bh.y - player.y) ** 2);
+      if (distToPlayer < closestDist) {
+        closestDist = distToPlayer;
+        closestBH = bh;
+      }
+    }
+
+    slowMotion = false; // reset slow motion flag
+
+    // Check if player is inside strong gravity field of closest BH
+    if (closestBH && closestDist < closestBH.radius) {
+      slowMotion = true;
+
+      // Reduce player mass and radius gradually, don't go below thresholds
+      if (player.mass > 10) {
+        player.mass = Math.max(30, player.mass - 2);
+        player.radius = Math.max(3, player.radius - 0.2);
+
+        // Spawn green dot pulled toward black hole at player location
+        dots.push({
+          x: player.x,
+          y: player.y,
+          radius: 2,
+          isGreen: true,
+          targetBH: closestBH
+        });
+      }
+    }
+
+    // Move player with slowdown if active
+    player.x += player.dx * (slowMotion ? 0.18 : 1);
+    player.y += player.dy * (slowMotion ? 0.18 : 1);
+
+    const r = player.radius;
+    player.x = Math.max(r, Math.min(canvas.width - r, player.x));
+    player.y = Math.max(r, Math.min(canvas.height - r, player.y));
+
+    // Update dots
+    for (let i = dots.length - 1; i >= 0; i--) {
+      const dot = dots[i];
+
+      // Find closest BH for dot
+      let closestDotBH = null;
+      let distDotBH = Infinity;
+      for (const bh of blackHoles) {
+        let distBH = Math.sqrt((bh.x - dot.x) ** 2 + (bh.y - dot.y) ** 2);
+        if (distBH < distDotBH) {
+          distDotBH = distBH;
+          closestDotBH = bh;
+        }
+      }
+
+      // If dot inside strong gravity field of closest BH, slow down dot & special behavior
+      if (closestDotBH && distDotBH < closestDotBH.radius ) {
+        slowMotion = true;
+
+        if (dot.isGreen && dot.targetBH) {
+          // Green dot moves directly toward its BH at slow speed
+          const dx = dot.targetBH.x - dot.x;
+          const dy = dot.targetBH.y - dot.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > 1) {
+            dot.x += (dx / dist);
+            dot.y += (dy / dist);
+          }
+        } else {
+          // Normal dots pulled with slow gravity
+          applyGravity(closestDotBH, dot, false, 0.18);
+        }
+      } else {
+        // Normal gravity pulls at full speed
+        applyGravity(player, dot);
+        for (const bh of blackHoles) {
+          applyGravity(bh, dot);
+        }
+      }
+
+      // Check if dot eaten by black hole
+      for (const bh of blackHoles) {
+        const distToBH = Math.sqrt((bh.x - dot.x) ** 2 + (bh.y - dot.y) ** 2);
+        if (distToBH < 5 + dot.radius) {
+          dots.splice(i, 1);
+          bh.radius += 1.0;
+          bh.eatenDots += 1;
+          bh.mass += 2;
+          break;
+        }
+      }
+
+      // Player eats normal dots (not green)
+      if (!dot.isGreen) {
+        const distToPlayer = Math.sqrt((player.x - dot.x) ** 2 + (player.y - dot.y) ** 2);
+        if (distToPlayer < player.radius + dot.radius) {
+          dots.splice(i, 1);
+          player.radius += 0.2;
+          player.eatenDots += 1;
+          player.mass += 2;
+        }
+      }
+    }
+
+    // Black holes pull player and check collision (game over)
+    for (const bh of blackHoles) {
+      applyGravity(bh, player, true, slowMotion ? 0.18 : 1);
+
+      const distToPlayer = Math.sqrt((bh.x - player.x) ** 2 + (bh.y - player.y) ** 2);
+      if (distToPlayer < 7 + player.radius) {
+        gameOver = true;
+        clearInterval(dotSpawner);
+        restartBtn.style.display = "block";
+      }
+    }
+  }
+
+  function draw() {
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Player circle
+    ctx.fillStyle = "#00ff88";
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    //Black holes
+    ctx.fillStyle = "black";
+    blackHoles.forEach(bh => {
+      ctx.beginPath();
+      ctx.arc(bh.x, bh.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+     
+
+    // Dots (green dots different color)
+    dots.forEach(dot => {
+      ctx.fillStyle = dot.isGreen ? "#00ff00" : "#ffcc00";
+      ctx.beginPath();
+      ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Stats
+    ctx.fillStyle = "white";
+    ctx.font = "16px sans-serif";
+    ctx.fillText(`Player Mass: ${player.mass}`, 20, 30);
+    ctx.fillText(`Player Dots eaten: ${player.eatenDots}`, 20, 50);
+
+    blackHoles.forEach((bh, i) => {
+      ctx.fillText(`BH ${i + 1} Dots eaten: ${bh.eatenDots}`, 20, 80 + i * 20);
+    });
+
+    if (gameOver) {
+      ctx.fillStyle = "red";
+      ctx.font = "48px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2);
+      ctx.textAlign = "start";
+    }
+  }
+
+  function gameLoop() {
+    if (!gameOver) {
+      update();
+    }
+    draw();
+    if (!gameOver) {
+      requestAnimationFrame(gameLoop);
+    }
+  }
+
+  // Restart button functionality
+  restartBtn.addEventListener("click", () => {
+    // Reset game state
+    // player.x = canvas.width / 2;
+    // player.y = canvas.height / 2;
+    player.x = 10;
+    player.y = 10;
+    player.radius = 6;
+    player.mass = 30;
+    player.eatenDots = 0;
+    player.dx = 0;
+    player.dy = 0;
+
+    dots.length = 0;
+
+    blackHoles.length = 0;
+    for (let i = 0; i < blackHoleCount; i++) {
+      let pos;
+      let tries = 0;
+      do {
+        pos = getRandomPosition();
+        tries++;
+      } while (
+        blackHoles.some(bh => distance(bh, pos) < maxGravityRadius) && tries < 100 && (pos.x < 10 || pos.y < 10)
+      );
+
+      blackHoles.push({
+        x: pos.x,
+        y: pos.y,
+        radius: blackHoleRadius,
+        mass: 100,
+        eatenDots: 0,
+      });
+    }
+
+    gameOver = false;
+    restartBtn.style.display = "none";
+
+    spawnNewDots();
+    dotSpawner = setInterval(spawnNewDots, 5000);
+    gameLoop();
+  });
+
+  window.addEventListener("keydown", e => keys[e.key] = true);
+  window.addEventListener("keyup", e => keys[e.key] = false);
+
+  spawnNewDots();
+  dotSpawner = setInterval(spawnNewDots, 5000);
+  gameLoop();
+</script>
+</body>
 </html>
